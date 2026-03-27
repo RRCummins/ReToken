@@ -1,0 +1,17 @@
+# Xcode user and build artifacts
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+
+# macOS filesystem noise
+.DS_Store
+
+# Swift Package Manager
+.build/
+
+# Local environment files
+.env
+.env.local
