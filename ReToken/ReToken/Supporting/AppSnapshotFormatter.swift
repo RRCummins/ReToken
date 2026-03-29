@@ -1,9 +1,9 @@
 import Foundation
 
 enum AppSnapshotFormatter {
-    static func statusTitle(for snapshot: AppSnapshot) -> String {
-        let warningMarker = snapshot.issues.isEmpty ? "" : " !"
-        return "RT \(compactTokenCount(snapshot.totalTodayTokens))\(warningMarker)"
+    static func statusTitle(for snapshot: AppSnapshot, showLifetime: Bool = false) -> String {
+        let value = showLifetime ? snapshot.totalLifetimeTokens : snapshot.totalTodayTokens
+        return "RT \(compactTokenCount(value))"
     }
 
     static func tooltip(for snapshot: AppSnapshot) -> String {
@@ -39,7 +39,15 @@ enum AppSnapshotFormatter {
     }
 
     static func usageMenuLine(for snapshot: ProviderUsageSnapshot) -> String {
-        "\(snapshot.provider.displayName): \(compactTokenCount(snapshot.todayTokens)) today • \(snapshot.windowDescription)"
+        let parts = [
+            "\(snapshot.provider.displayName): \(compactTokenCount(snapshot.todayTokens)) today",
+            inputOutputSummary(for: snapshot),
+            usageWindowSummary(for: snapshot),
+            usageLimitSummary(for: snapshot),
+            snapshot.windowDescription
+        ].compactMap { $0 }
+
+        return parts.joined(separator: " • ")
     }
 
     static func accountMenuLine(for snapshot: AccountSnapshot) -> String {
@@ -53,9 +61,55 @@ enum AppSnapshotFormatter {
     static func usageDashboardText(for snapshot: AppSnapshot) -> String {
         snapshot.usage
             .map {
-                "\($0.provider.displayName): \(compactTokenCount($0.todayTokens)) today, \($0.windowDescription), \($0.burnDescription) burn, \($0.accountStatus)"
+                [
+                    "\($0.provider.displayName): \(compactTokenCount($0.todayTokens)) today",
+                    inputOutputSummary(for: $0),
+                    usageWindowSummary(for: $0),
+                    usageLimitSummary(for: $0),
+                    $0.windowDescription,
+                    "\($0.burnDescription) burn",
+                    $0.accountStatus
+                ]
+                    .compactMap { $0 }
+                    .joined(separator: ", ")
             }
             .joined(separator: "\n")
+    }
+
+    static func usageWindowSummary(for snapshot: ProviderUsageSnapshot) -> String {
+        let fiveHourLabel = "\(compactTokenCount(snapshot.fiveHourTokens)) / 5h"
+        let weekLabel = "\(compactTokenCount(snapshot.weekTokens)) / 7d"
+        return "\(fiveHourLabel) • \(weekLabel)"
+    }
+
+    static func inputOutputSummary(for snapshot: ProviderUsageSnapshot) -> String? {
+        guard let input = snapshot.todayInputTokens,
+              let output = snapshot.todayOutputTokens else {
+            return nil
+        }
+
+        return "In \(compactTokenCount(input)) • Out \(compactTokenCount(output))"
+    }
+
+    static func usageLimitSummary(
+        for snapshot: ProviderUsageSnapshot,
+        referenceDate: Date = .now
+    ) -> String? {
+        let fiveHour = usageLimitWindowSummary(
+            windowLabel: "5h",
+            usedPercent: snapshot.fiveHourUsedPercent,
+            resetAt: snapshot.fiveHourResetAt,
+            referenceDate: referenceDate
+        )
+        let week = usageLimitWindowSummary(
+            windowLabel: "7d",
+            usedPercent: snapshot.weekUsedPercent,
+            resetAt: snapshot.weekResetAt,
+            referenceDate: referenceDate
+        )
+
+        let parts = [fiveHour, week].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
     }
 
     static func accountsDashboardText(for snapshot: AppSnapshot) -> String {
@@ -179,4 +233,37 @@ enum AppSnapshotFormatter {
         formatter.unitsStyle = .short
         return formatter
     }()
+
+    private static let durationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.maximumUnitCount = 2
+        formatter.zeroFormattingBehavior = [.dropLeading, .dropTrailing]
+        return formatter
+    }()
+
+    private static func usageLimitWindowSummary(
+        windowLabel: String,
+        usedPercent: Double?,
+        resetAt: Date?,
+        referenceDate: Date
+    ) -> String? {
+        guard usedPercent != nil || resetAt != nil else {
+            return nil
+        }
+
+        var parts: [String] = ["\(windowLabel) cap"]
+        if let usedPercent {
+            parts.append(String(format: "%.0f%%", usedPercent))
+        }
+
+        if let resetAt {
+            let remaining = max(0, resetAt.timeIntervalSince(referenceDate))
+            let resetText = durationFormatter.string(from: remaining).map { "resets in \($0)" } ?? "reset pending"
+            parts.append(resetText)
+        }
+
+        return parts.joined(separator: " ")
+    }
 }

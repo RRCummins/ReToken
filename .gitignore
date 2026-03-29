@@ -15,3 +15,7 @@ build/
 # Local environment files
 .env
 .env.local
+
+# Local release artifacts
+ReToken.app/
+ReToken-*.dmg

@@ -1,6 +1,22 @@
 import Foundation
 import GRDB
 
+struct UsageChartPoint {
+    let timestamp: Date
+    let totalTokens: Int
+}
+
+struct DashboardUsageCharts {
+    let hourly: [UsageChartPoint]
+    let daily: [UsageChartPoint]
+
+    var isEmpty: Bool {
+        hourly.isEmpty && daily.isEmpty
+    }
+
+    static let empty = DashboardUsageCharts(hourly: [], daily: [])
+}
+
 struct TelemetryStore {
     private let fileManager: FileManager
     private let baseDirectoryURL: URL?
@@ -104,6 +120,8 @@ struct TelemetryStore {
                             freshness,
                             recorded_at,
                             today_tokens,
+                            five_hour_tokens,
+                            week_tokens,
                             window_description,
                             burn_description,
                             account_status,
@@ -111,7 +129,7 @@ struct TelemetryStore {
                             plan_label,
                             billing_status,
                             data_source_label
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             usageSnapshot.provider.rawValue,
@@ -119,6 +137,8 @@ struct TelemetryStore {
                             snapshot.freshness.rawValue,
                             snapshot.lastUpdatedAt,
                             usageSnapshot.todayTokens,
+                            usageSnapshot.fiveHourTokens,
+                            usageSnapshot.weekTokens,
                             usageSnapshot.windowDescription,
                             usageSnapshot.burnDescription,
                             usageSnapshot.accountStatus,
@@ -267,7 +287,44 @@ struct TelemetryStore {
         }
     }
 
-    private static func upsertActivity(_ item: RecentActivityItem, seenAt: Date, db: Database) throws {
+    func loadDashboardUsageCharts(now: Date = .now) -> DashboardUsageCharts {
+        guard let databaseQueue else {
+            return .empty
+        }
+
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfDay = calendar.startOfDay(for: now)
+        let startOfWeekWindow = calendar.date(byAdding: .day, value: -6, to: startOfDay) ?? startOfDay
+        let endOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? now
+
+        do {
+            let rows = try databaseQueue.read { db in
+                try Row.fetchAll(
+                    db,
+                    sql: """
+                    SELECT recorded_at, SUM(today_tokens) AS total_tokens
+                    FROM usage_samples
+                    WHERE recorded_at >= ?
+                      AND recorded_at < ?
+                    GROUP BY recorded_at
+                    ORDER BY recorded_at ASC
+                    """,
+                    arguments: [startOfWeekWindow, endOfTomorrow]
+                )
+            }
+
+            let points = rows.compactMap(Self.makeChartPoint(from:))
+            return DashboardUsageCharts(
+                hourly: Self.hourlyChartPoints(from: points, startOfDay: startOfDay, now: now, calendar: calendar),
+                daily: Self.dailyChartPoints(from: points, startDay: startOfWeekWindow, endDay: startOfDay, calendar: calendar)
+            )
+        } catch {
+            assertionFailure("Failed to load dashboard usage charts: \(error)")
+            return .empty
+        }
+    }
+
+    nonisolated private static func upsertActivity(_ item: RecentActivityItem, seenAt: Date, db: Database) throws {
         let existingRow = try Row.fetchOne(
             db,
             sql: """
@@ -323,7 +380,7 @@ struct TelemetryStore {
         }
     }
 
-    private static func makeActivity(from row: Row) -> RecentActivityItem? {
+    nonisolated private static func makeActivity(from row: Row) -> RecentActivityItem? {
         guard let providerRawValue: String = row["provider"],
               let provider = ProviderKind(rawValue: providerRawValue),
               let id: String = row["id"],
@@ -344,7 +401,7 @@ struct TelemetryStore {
         )
     }
 
-    private static func makeLeaderboardEntry(from row: Row) -> UsageLeaderboardEntry? {
+    nonisolated private static func makeLeaderboardEntry(from row: Row) -> UsageLeaderboardEntry? {
         guard let providerRawValue: String = row["provider"],
               let provider = ProviderKind(rawValue: providerRawValue) else {
             return nil
@@ -355,7 +412,16 @@ struct TelemetryStore {
         return UsageLeaderboardEntry(provider: provider, bestTokens: bestTokens, sampleCount: sampleCount)
     }
 
-    private static func mergedActivity(
+    nonisolated private static func makeChartPoint(from row: Row) -> UsageChartPoint? {
+        guard let timestamp: Date = row["recorded_at"] else {
+            return nil
+        }
+
+        let totalTokens: Int = row["total_tokens"] ?? 0
+        return UsageChartPoint(timestamp: timestamp, totalTokens: totalTokens)
+    }
+
+    nonisolated private static func mergedActivity(
         existingItems: [RecentActivityItem],
         incomingItems: [RecentActivityItem],
         limit: Int
@@ -387,7 +453,59 @@ struct TelemetryStore {
             .map { $0 }
     }
 
-    private static func makeDatabaseQueue(
+    nonisolated private static func hourlyChartPoints(
+        from points: [UsageChartPoint],
+        startOfDay: Date,
+        now: Date,
+        calendar: Calendar
+    ) -> [UsageChartPoint] {
+        var maxTotalsByHour: [Date: Int] = [:]
+
+        for point in points where point.timestamp >= startOfDay {
+            guard let hourStart = calendar.dateInterval(of: .hour, for: point.timestamp)?.start else {
+                continue
+            }
+
+            maxTotalsByHour[hourStart] = max(maxTotalsByHour[hourStart] ?? 0, point.totalTokens)
+        }
+
+        let endHour = calendar.dateInterval(of: .hour, for: now)?.start ?? now
+        var chartPoints: [UsageChartPoint] = []
+        var cursor = startOfDay
+
+        while cursor <= endHour {
+            chartPoints.append(UsageChartPoint(timestamp: cursor, totalTokens: maxTotalsByHour[cursor] ?? 0))
+            cursor = calendar.date(byAdding: .hour, value: 1, to: cursor) ?? endHour.addingTimeInterval(1)
+        }
+
+        return chartPoints
+    }
+
+    nonisolated private static func dailyChartPoints(
+        from points: [UsageChartPoint],
+        startDay: Date,
+        endDay: Date,
+        calendar: Calendar
+    ) -> [UsageChartPoint] {
+        var maxTotalsByDay: [Date: Int] = [:]
+
+        for point in points {
+            let dayStart = calendar.startOfDay(for: point.timestamp)
+            maxTotalsByDay[dayStart] = max(maxTotalsByDay[dayStart] ?? 0, point.totalTokens)
+        }
+
+        var chartPoints: [UsageChartPoint] = []
+        var cursor = startDay
+
+        while cursor <= endDay {
+            chartPoints.append(UsageChartPoint(timestamp: cursor, totalTokens: maxTotalsByDay[cursor] ?? 0))
+            cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? endDay.addingTimeInterval(1)
+        }
+
+        return chartPoints
+    }
+
+    nonisolated private static func makeDatabaseQueue(
         fileManager: FileManager,
         baseDirectoryURL: URL?
     ) -> DatabaseQueue? {
@@ -430,6 +548,13 @@ struct TelemetryStore {
                 }
             }
 
+            migrator.registerMigration("addUsageWindows") { db in
+                try db.alter(table: "usage_samples") { table in
+                    table.add(column: "five_hour_tokens", .integer).notNull().defaults(to: 0)
+                    table.add(column: "week_tokens", .integer).notNull().defaults(to: 0)
+                }
+            }
+
             try migrator.migrate(databaseQueue)
             return databaseQueue
         } catch {
@@ -438,7 +563,7 @@ struct TelemetryStore {
         }
     }
 
-    private static func makeDatabaseURL(
+    nonisolated private static func makeDatabaseURL(
         fileManager: FileManager,
         baseDirectoryURL: URL?
     ) -> URL {

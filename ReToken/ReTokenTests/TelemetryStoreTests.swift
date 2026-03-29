@@ -132,4 +132,50 @@ final class TelemetryStoreTests: XCTestCase {
         XCTAssertEqual(leaderboard.championEntry?.provider, .claude)
         XCTAssertEqual(leaderboard.providerBests.map(\.provider), [.claude, .codex, .gemini])
     }
+
+    func testLoadDashboardUsageChartsBuildsHourlyAndDailyRollups() {
+        let store = TelemetryStore(baseDirectoryURL: temporaryDirectoryURL, maxStoredActivities: 10)
+        let calendar = Calendar(identifier: .gregorian)
+        let baseDate = Date(timeIntervalSince1970: 1_780_110_000)
+        let now = calendar.startOfDay(for: baseDate).addingTimeInterval(23 * 60 * 60)
+        let startOfDay = calendar.startOfDay(for: now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: startOfDay)!
+
+        store.recordUsage(snapshot: SnapshotFixtures.snapshot(
+            usage: [
+                SnapshotFixtures.usage(provider: .claude, todayTokens: 180_000, fiveHourTokens: 80_000, weekTokens: 500_000),
+                SnapshotFixtures.usage(provider: .codex, todayTokens: 70_000, fiveHourTokens: 35_000, weekTokens: 290_000)
+            ],
+            lastUpdatedAt: yesterday.addingTimeInterval(18 * 60 * 60),
+            mode: .live
+        ))
+
+        store.recordUsage(snapshot: SnapshotFixtures.snapshot(
+            usage: [
+                SnapshotFixtures.usage(provider: .claude, todayTokens: 210_000, fiveHourTokens: 90_000, weekTokens: 540_000),
+                SnapshotFixtures.usage(provider: .codex, todayTokens: 90_000, fiveHourTokens: 42_000, weekTokens: 310_000)
+            ],
+            lastUpdatedAt: startOfDay.addingTimeInterval(9 * 60 * 60),
+            mode: .live
+        ))
+
+        store.recordUsage(snapshot: SnapshotFixtures.snapshot(
+            usage: [
+                SnapshotFixtures.usage(provider: .claude, todayTokens: 420_000, fiveHourTokens: 160_000, weekTokens: 760_000),
+                SnapshotFixtures.usage(provider: .codex, todayTokens: 140_000, fiveHourTokens: 58_000, weekTokens: 430_000)
+            ],
+            lastUpdatedAt: startOfDay.addingTimeInterval(14 * 60 * 60),
+            mode: .live
+        ))
+
+        let charts = store.loadDashboardUsageCharts(now: now)
+
+        XCTAssertEqual(charts.hourly.count, 24)
+        XCTAssertEqual(charts.hourly.first?.timestamp, startOfDay)
+        XCTAssertEqual(charts.hourly[9].totalTokens, 300_000)
+        XCTAssertEqual(charts.hourly[14].totalTokens, 560_000)
+        XCTAssertEqual(charts.daily.count, 7)
+        XCTAssertEqual(charts.daily.last?.totalTokens, 560_000)
+        XCTAssertEqual(charts.daily.dropLast().last?.totalTokens, 250_000)
+    }
 }

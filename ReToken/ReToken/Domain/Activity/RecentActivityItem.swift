@@ -8,7 +8,7 @@ struct RecentActivityItem: Codable, Identifiable {
     let occurredAt: Date
     let sourceDescription: String
 
-    init(
+    nonisolated init(
         id: String? = nil,
         provider: ProviderKind,
         title: String,
@@ -30,7 +30,7 @@ struct RecentActivityItem: Codable, Identifiable {
         self.sourceDescription = sourceDescription
     }
 
-    private static func defaultIdentifier(
+    nonisolated private static func defaultIdentifier(
         provider: ProviderKind,
         title: String,
         detail: String,

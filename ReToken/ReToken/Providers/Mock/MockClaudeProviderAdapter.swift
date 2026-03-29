@@ -10,6 +10,11 @@ struct MockClaudeProviderAdapter: ProviderAdapter {
             usage: ProviderUsageSnapshot(
                 provider: provider,
                 todayTokens: tokens,
+                todayInputTokens: 708_000 + (context.refreshCount * 8_500),
+                todayOutputTokens: 212_000 + (context.refreshCount * 2_500),
+                fiveHourTokens: 284_000 + (context.refreshCount * 4_000),
+                weekTokens: 2_460_000 + (context.refreshCount * 15_000),
+                lifetimeTokens: 48_200_000,
                 windowDescription: "5h window resets in 1h 24m",
                 burnDescription: "hot",
                 accountStatus: "connected through local CLI usage"

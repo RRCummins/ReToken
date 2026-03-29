@@ -40,6 +40,10 @@ struct AppSnapshot: Codable {
         usage.reduce(0) { $0 + $1.todayTokens }
     }
 
+    var totalLifetimeTokens: Int {
+        usage.reduce(0) { $0 + $1.lifetimeTokens }
+    }
+
     func replacing(
         freshness: SnapshotFreshness,
         dataSourceLabel newDataSourceLabel: String? = nil,

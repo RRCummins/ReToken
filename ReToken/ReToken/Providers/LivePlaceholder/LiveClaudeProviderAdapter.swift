@@ -23,7 +23,8 @@ struct LiveClaudeProviderAdapter: ProviderAdapter {
                 todayTokens: 0,
                 windowDescription: "Claude local data unavailable",
                 burnDescription: "idle",
-                accountStatus: "waiting for local Claude telemetry"
+                accountStatus: "waiting for local Claude telemetry",
+                isVisible: false
             ),
             account: AccountSnapshot(
                 provider: provider,

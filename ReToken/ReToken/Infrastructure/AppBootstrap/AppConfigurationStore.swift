@@ -4,6 +4,7 @@ final class AppConfigurationStore {
     private enum Keys {
         static let providerMode = "providerMode"
         static let refreshIntervalMinutes = "refreshIntervalMinutes"
+        static let menuBarShowsLifetime = "menuBarShowsLifetime"
     }
 
     private let userDefaults: UserDefaults
@@ -18,9 +19,8 @@ final class AppConfigurationStore {
                 let rawValue = userDefaults.string(forKey: Keys.providerMode),
                 let mode = ProviderMode(rawValue: rawValue)
             else {
-                return .mock
+                return .live   // always default to live — mock is dev-only
             }
-
             return mode
         }
         set {
@@ -36,5 +36,12 @@ final class AppConfigurationStore {
         set {
             userDefaults.set(newValue, forKey: Keys.refreshIntervalMinutes)
         }
+    }
+
+    /// When true the menu-bar status item shows the all-time lifetime token total;
+    /// when false it shows today's total.
+    var menuBarShowsLifetime: Bool {
+        get { userDefaults.bool(forKey: Keys.menuBarShowsLifetime) }
+        set { userDefaults.set(newValue, forKey: Keys.menuBarShowsLifetime) }
     }
 }

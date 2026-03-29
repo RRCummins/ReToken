@@ -5,16 +5,36 @@ enum SnapshotFixtures {
     static func usage(
         provider: ProviderKind,
         todayTokens: Int,
+        todayInputTokens: Int? = nil,
+        todayOutputTokens: Int? = nil,
+        fiveHourTokens: Int = 0,
+        weekTokens: Int = 0,
+        fiveHourUsedPercent: Double? = nil,
+        fiveHourResetAt: Date? = nil,
+        weekUsedPercent: Double? = nil,
+        weekResetAt: Date? = nil,
+        lifetimeTokens: Int = 0,
         windowDescription: String = "24h window",
         burnDescription: String = "high",
-        accountStatus: String = "Healthy"
+        accountStatus: String = "Healthy",
+        isVisible: Bool = true
     ) -> ProviderUsageSnapshot {
         ProviderUsageSnapshot(
             provider: provider,
             todayTokens: todayTokens,
+            todayInputTokens: todayInputTokens,
+            todayOutputTokens: todayOutputTokens,
+            fiveHourTokens: fiveHourTokens,
+            weekTokens: weekTokens,
+            fiveHourUsedPercent: fiveHourUsedPercent,
+            fiveHourResetAt: fiveHourResetAt,
+            weekUsedPercent: weekUsedPercent,
+            weekResetAt: weekResetAt,
+            lifetimeTokens: lifetimeTokens,
             windowDescription: windowDescription,
             burnDescription: burnDescription,
-            accountStatus: accountStatus
+            accountStatus: accountStatus,
+            isVisible: isVisible
         )
     }
 

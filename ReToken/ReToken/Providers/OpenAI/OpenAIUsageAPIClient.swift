@@ -1,9 +1,17 @@
 import Foundation
 
 struct OpenAIUsageSummary {
-    let totalTokens: Int
-    let totalRequests: Int
-    let totalCostUSD: Double?
+    let todayTokens: Int
+    let todayInputTokens: Int
+    let todayOutputTokens: Int
+    let fiveHourTokens: Int
+    let weekTokens: Int
+    let todayRequests: Int
+    let todayCostUSD: Double?
+
+    var totalTokens: Int { todayTokens }
+    var totalRequests: Int { todayRequests }
+    var totalCostUSD: Double? { todayCostUSD }
 }
 
 struct OpenAIUsageAPIClient {
@@ -13,14 +21,39 @@ struct OpenAIUsageAPIClient {
         self.session = session
     }
 
-    func fetchDailyUsage(
+    func fetchUsageWindows(
         adminKey: String,
         organizationID: String?,
-        projectID: String?
+        projectID: String?,
+        now: Date = .now
     ) async throws -> OpenAIUsageSummary {
-        async let usageResponse = performRequest(
-            path: "/v1/organization/usage/completions",
-            queryItems: usageQueryItems(projectID: projectID),
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfDay = calendar.startOfDay(for: now)
+        let fiveHourBoundary = now.addingTimeInterval(-(5 * 60 * 60))
+        let weekBoundary = now.addingTimeInterval(-(7 * 24 * 60 * 60))
+
+        async let todayUsage = fetchUsageAggregate(
+            startTime: startOfDay,
+            endTime: now,
+            bucketWidth: .hour,
+            adminKey: adminKey,
+            organizationID: organizationID,
+            projectID: projectID
+        )
+
+        async let fiveHourUsage = fetchUsageAggregate(
+            startTime: fiveHourBoundary,
+            endTime: now,
+            bucketWidth: .hour,
+            adminKey: adminKey,
+            organizationID: organizationID,
+            projectID: projectID
+        )
+
+        async let weekUsage = fetchUsageAggregate(
+            startTime: weekBoundary,
+            endTime: now,
+            bucketWidth: .day,
             adminKey: adminKey,
             organizationID: organizationID,
             projectID: projectID
@@ -28,36 +61,97 @@ struct OpenAIUsageAPIClient {
 
         async let costResponse = performRequest(
             path: "/v1/organization/costs",
-            queryItems: costsQueryItems(projectID: projectID),
+            queryItems: costsQueryItems(
+                startTime: startOfDay,
+                endTime: now,
+                bucketWidth: .day,
+                projectID: projectID
+            ),
             adminKey: adminKey,
             organizationID: organizationID,
             projectID: projectID
         )
 
-        let usageData = try await usageResponse
-        let costsData = try await costResponse
+        let (todayUsageSummary, fiveHourUsageSummary, weekUsageSummary, costsData) = try await (
+            todayUsage,
+            fiveHourUsage,
+            weekUsage,
+            costResponse
+        )
 
-        let usage = try JSONDecoder().decode(OpenAICompletionsUsageResponse.self, from: usageData)
         let costs = try JSONDecoder().decode(OpenAICostsResponse.self, from: costsData)
-
-        let totalTokens = usage.data
-            .flatMap(\.results)
-            .reduce(0) { partialResult, result in
-                partialResult + result.inputTokens + result.outputTokens
-            }
-
-        let totalRequests = usage.data
-            .flatMap(\.results)
-            .reduce(0) { $0 + $1.numModelRequests }
-
         let totalCostUSD = costs.data
             .flatMap(\.results)
             .reduce(0.0) { $0 + $1.amount.value }
 
         return OpenAIUsageSummary(
-            totalTokens: totalTokens,
-            totalRequests: totalRequests,
-            totalCostUSD: totalCostUSD == 0 ? nil : totalCostUSD
+            todayTokens: todayUsageSummary.tokens,
+            todayInputTokens: todayUsageSummary.inputTokens,
+            todayOutputTokens: todayUsageSummary.outputTokens,
+            fiveHourTokens: fiveHourUsageSummary.tokens,
+            weekTokens: weekUsageSummary.tokens,
+            todayRequests: todayUsageSummary.requests,
+            todayCostUSD: totalCostUSD == 0 ? nil : totalCostUSD
+        )
+    }
+
+    func fetchDailyUsage(
+        adminKey: String,
+        organizationID: String?,
+        projectID: String?,
+        now: Date = .now
+    ) async throws -> OpenAIUsageSummary {
+        try await fetchUsageWindows(
+            adminKey: adminKey,
+            organizationID: organizationID,
+            projectID: projectID,
+            now: now
+        )
+    }
+
+    private func fetchUsageAggregate(
+        startTime: Date,
+        endTime: Date,
+        bucketWidth: OpenAIUsageBucketWidth,
+        adminKey: String,
+        organizationID: String?,
+        projectID: String?
+    ) async throws -> OpenAIUsageAggregate {
+        let usageResponse = try await performRequest(
+            path: "/v1/organization/usage/completions",
+            queryItems: usageQueryItems(
+                startTime: startTime,
+                endTime: endTime,
+                bucketWidth: bucketWidth,
+                projectID: projectID
+            ),
+            adminKey: adminKey,
+            organizationID: organizationID,
+            projectID: projectID
+        )
+
+        let usage = try JSONDecoder().decode(OpenAICompletionsUsageResponse.self, from: usageResponse)
+        let tokens = usage.data
+            .flatMap(\.results)
+            .reduce(0) { partialResult, result in
+                partialResult + result.inputTokens + result.outputTokens
+            }
+        let inputTokens = usage.data
+            .flatMap(\.results)
+            .reduce(0) { $0 + $1.inputTokens }
+        let outputTokens = usage.data
+            .flatMap(\.results)
+            .reduce(0) { $0 + $1.outputTokens }
+
+        let requests = usage.data
+            .flatMap(\.results)
+            .reduce(0) { $0 + $1.numModelRequests }
+
+        return OpenAIUsageAggregate(
+            tokens: tokens,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            requests: requests
         )
     }
 
@@ -107,31 +201,91 @@ struct OpenAIUsageAPIClient {
         return data
     }
 
-    private func usageQueryItems(projectID: String?) -> [URLQueryItem] {
-        var queryItems = commonQueryItems()
+    private func usageQueryItems(
+        startTime: Date,
+        endTime: Date,
+        bucketWidth: OpenAIUsageBucketWidth,
+        projectID: String?
+    ) -> [URLQueryItem] {
+        var queryItems = commonQueryItems(
+            startTime: startTime,
+            endTime: endTime,
+            bucketWidth: bucketWidth
+        )
         if let projectID, projectID.isEmpty == false {
             queryItems.append(URLQueryItem(name: "project_ids[]", value: projectID))
         }
         return queryItems
     }
 
-    private func costsQueryItems(projectID: String?) -> [URLQueryItem] {
-        var queryItems = commonQueryItems()
+    private func costsQueryItems(
+        startTime: Date,
+        endTime: Date,
+        bucketWidth: OpenAIUsageBucketWidth,
+        projectID: String?
+    ) -> [URLQueryItem] {
+        var queryItems = commonQueryItems(
+            startTime: startTime,
+            endTime: endTime,
+            bucketWidth: bucketWidth
+        )
         if let projectID, projectID.isEmpty == false {
             queryItems.append(URLQueryItem(name: "project_ids[]", value: projectID))
         }
         return queryItems
     }
 
-    private func commonQueryItems(now: Date = .now) -> [URLQueryItem] {
-        let endTime = Int(now.timeIntervalSince1970)
-        let startTime = endTime - (24 * 60 * 60)
+    private func commonQueryItems(
+        startTime: Date,
+        endTime: Date,
+        bucketWidth: OpenAIUsageBucketWidth
+    ) -> [URLQueryItem] {
+        let startTimestamp = Int(startTime.timeIntervalSince1970)
+        let endTimestamp = Int(endTime.timeIntervalSince1970)
+        let bucketLimit = max(
+            1,
+            min(
+                bucketWidth.maximumLimit,
+                Int(ceil(endTime.timeIntervalSince(startTime) / bucketWidth.timeInterval))
+            )
+        )
 
         return [
-            URLQueryItem(name: "start_time", value: String(startTime)),
-            URLQueryItem(name: "bucket_width", value: "1d"),
-            URLQueryItem(name: "limit", value: "1")
+            URLQueryItem(name: "start_time", value: String(startTimestamp)),
+            URLQueryItem(name: "end_time", value: String(endTimestamp)),
+            URLQueryItem(name: "bucket_width", value: bucketWidth.rawValue),
+            URLQueryItem(name: "limit", value: String(bucketLimit))
         ]
+    }
+}
+
+private struct OpenAIUsageAggregate {
+    let tokens: Int
+    let inputTokens: Int
+    let outputTokens: Int
+    let requests: Int
+}
+
+private enum OpenAIUsageBucketWidth: String {
+    case hour = "1h"
+    case day = "1d"
+
+    var timeInterval: TimeInterval {
+        switch self {
+        case .hour:
+            return 60 * 60
+        case .day:
+            return 24 * 60 * 60
+        }
+    }
+
+    var maximumLimit: Int {
+        switch self {
+        case .hour:
+            return 168
+        case .day:
+            return 31
+        }
     }
 }
 

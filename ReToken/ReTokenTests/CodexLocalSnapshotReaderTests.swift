@@ -22,16 +22,47 @@ final class CodexLocalSnapshotReaderTests: XCTestCase {
 
     func testReadSnapshotBuildsRecentActivityAndDailyTotals() throws {
         #if canImport(SQLite3)
-        let now = Date(timeIntervalSince1970: 1_780_012_800) // 2026-05-18 00:00:00 UTC
+        let calendar = Calendar.current
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 5, day: 18, hour: 12, minute: 0))
+        )
+        let startOfDay = calendar.startOfDay(for: now)
         let databaseURL = temporaryDirectoryURL.appending(path: "state.sqlite")
-        let rolloutURL = temporaryDirectoryURL.appending(path: "rollout.jsonl")
+        let rolloutOneURL = temporaryDirectoryURL.appending(path: "rollout-one.jsonl")
+        let rolloutTwoURL = temporaryDirectoryURL.appending(path: "rollout-two.jsonl")
+        let yesterdayRolloutURL = temporaryDirectoryURL.appending(path: "yesterday-rollout.jsonl")
+        let beforeToday = Self.iso8601String(from: startOfDay.addingTimeInterval(-60))
+        let shortlyAfterStartOfDay = Self.iso8601String(from: startOfDay.addingTimeInterval(180))
+        let sessionOneStart = Self.iso8601String(from: startOfDay.addingTimeInterval(-120))
+        let sessionTwoStart = Self.iso8601String(from: startOfDay.addingTimeInterval(60))
+        let sessionTwoToken = Self.iso8601String(from: now.addingTimeInterval(-(60 * 60)))
+        let yesterdayToken = Self.iso8601String(from: startOfDay.addingTimeInterval(-15 * 60 * 60))
+        let oldSessionStart = Self.iso8601String(from: startOfDay.addingTimeInterval(-36 * 60 * 60))
 
         try write(
             """
-            {"timestamp":"2026-05-18T00:02:00Z","type":"session_meta","payload":{"id":"thread-1","cwd":"/Users/test/Developer/ReToken","model_provider":"openai","source":"cli","timestamp":"2026-05-18T00:00:00Z","base_instructions":"","cli_version":"1.0.0","originator":"user"}}
-            {"timestamp":"2026-05-18T00:03:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":2000,"output_tokens":500,"reasoning_output_tokens":0,"total_tokens":3500},"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":50,"reasoning_output_tokens":0,"total_tokens":150},"model_context_window":258400},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":12.0,"window_minutes":300,"resets_at":1780000000},"secondary":{"used_percent":64.0,"window_minutes":10080,"resets_at":1780500000},"credits":null,"plan_type":"plus"}}}
+            {"timestamp":"\(sessionOneStart)","type":"session_meta","payload":{"id":"thread-1","cwd":"/Users/test/Developer/ReToken","model_provider":"openai","source":"cli","timestamp":"\(sessionOneStart)","base_instructions":"","cli_version":"1.0.0","originator":"user"}}
+            not-json-at-all
+            {"timestamp":"\(beforeToday)","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":700,"cached_input_tokens":0,"output_tokens":300,"reasoning_output_tokens":0,"total_tokens":1000},"last_token_usage":{"input_tokens":700,"cached_input_tokens":0,"output_tokens":300,"reasoning_output_tokens":0,"total_tokens":1000},"model_context_window":258400},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":8.0,"window_minutes":300,"resets_at":1780000000},"secondary":{"used_percent":40.0,"window_minutes":10080,"resets_at":1780500000},"credits":null,"plan_type":"plus"}}}
+            {"timestamp":"\(shortlyAfterStartOfDay)","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":2000,"output_tokens":500,"reasoning_output_tokens":0,"total_tokens":3500},"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":50,"reasoning_output_tokens":0,"total_tokens":150},"model_context_window":258400},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":12.0,"window_minutes":300,"resets_at":1780000000},"secondary":{"used_percent":64.0,"window_minutes":10080,"resets_at":1780500000},"credits":null,"plan_type":"plus"}}}
             """,
-            to: rolloutURL
+            to: rolloutOneURL
+        )
+
+        try write(
+            """
+            {"timestamp":"\(sessionTwoStart)","type":"session_meta","payload":{"id":"thread-2","cwd":"/Users/test/Developer/SubFramed","model_provider":"openai","source":"cli","timestamp":"\(sessionTwoStart)","base_instructions":"","cli_version":"1.0.0","originator":"user"}}
+            {"timestamp":"\(sessionTwoToken)","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"cached_input_tokens":0,"output_tokens":300,"reasoning_output_tokens":0,"total_tokens":800},"last_token_usage":{"input_tokens":500,"cached_input_tokens":0,"output_tokens":300,"reasoning_output_tokens":0,"total_tokens":800},"model_context_window":258400},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":12.0,"window_minutes":300,"resets_at":1780000000},"secondary":{"used_percent":64.0,"window_minutes":10080,"resets_at":1780500000},"credits":null,"plan_type":"plus"}}}
+            """,
+            to: rolloutTwoURL
+        )
+
+        try write(
+            """
+            {"timestamp":"\(oldSessionStart)","type":"session_meta","payload":{"id":"thread-3","cwd":"/Users/test/Developer/OldProject","model_provider":"openai","source":"cli","timestamp":"\(oldSessionStart)","base_instructions":"","cli_version":"1.0.0","originator":"user"}}
+            {"timestamp":"\(yesterdayToken)","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10000,"cached_input_tokens":0,"output_tokens":2000,"reasoning_output_tokens":0,"total_tokens":12000},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":200,"reasoning_output_tokens":0,"total_tokens":1200},"model_context_window":258400},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":20.0,"window_minutes":300,"resets_at":1780000000},"secondary":{"used_percent":70.0,"window_minutes":10080,"resets_at":1780500000},"credits":null,"plan_type":"plus"}}}
+            """,
+            to: yesterdayRolloutURL
         )
 
         try createStateDatabase(
@@ -39,7 +70,7 @@ final class CodexLocalSnapshotReaderTests: XCTestCase {
             rows: [
                 ThreadFixture(
                     id: "thread-1",
-                    rolloutPath: rolloutURL.path,
+                    rolloutPath: rolloutOneURL.path,
                     updatedAt: Int(now.timeIntervalSince1970),
                     cwd: "/Users/test/Developer/ReToken",
                     title: "Build local Codex ingestion",
@@ -48,7 +79,7 @@ final class CodexLocalSnapshotReaderTests: XCTestCase {
                 ),
                 ThreadFixture(
                     id: "thread-2",
-                    rolloutPath: rolloutURL.path,
+                    rolloutPath: rolloutTwoURL.path,
                     updatedAt: Int(now.addingTimeInterval(-600).timeIntervalSince1970),
                     cwd: "/Users/test/Developer/SubFramed",
                     title: "Finish another app",
@@ -57,7 +88,7 @@ final class CodexLocalSnapshotReaderTests: XCTestCase {
                 ),
                 ThreadFixture(
                     id: "thread-3",
-                    rolloutPath: rolloutURL.path,
+                    rolloutPath: yesterdayRolloutURL.path,
                     updatedAt: Int(now.addingTimeInterval(-90_000).timeIntervalSince1970),
                     cwd: "/Users/test/Developer/OldProject",
                     title: "Yesterday work",
@@ -70,11 +101,15 @@ final class CodexLocalSnapshotReaderTests: XCTestCase {
         let reader = CodexLocalSnapshotReader(stateDatabaseURL: databaseURL)
         let snapshot = try reader.readSnapshot(now: now)
 
-        XCTAssertEqual(snapshot.usage.todayTokens, 20_500)
+        XCTAssertEqual(snapshot.usage.todayTokens, 3_300)
+        XCTAssertEqual(snapshot.usage.todayInputTokens, 2_800)
+        XCTAssertEqual(snapshot.usage.todayOutputTokens, 500)
+        XCTAssertEqual(snapshot.usage.fiveHourTokens, 800)
+        XCTAssertEqual(snapshot.usage.weekTokens, 16_300)
         XCTAssertEqual(snapshot.usage.windowDescription, "2 threads today • 5h 12% • 1w 64%")
         XCTAssertEqual(snapshot.account.accountLabel, "ReToken")
         XCTAssertEqual(snapshot.account.planLabel, "Codex Plus")
-        XCTAssertEqual(snapshot.account.billingStatus, "Plus • 5h 12% • 1w 64% • 20.5K tokens today")
+        XCTAssertEqual(snapshot.account.billingStatus, "Plus • 5h 12% • 1w 64% • 3.3K tokens today")
         XCTAssertEqual(snapshot.recentActivity.count, 3)
         XCTAssertEqual(snapshot.recentActivity.first?.id, "codex:thread:thread-1")
         XCTAssertEqual(snapshot.recentActivity.first?.title, "Build local Codex ingestion")
@@ -145,6 +180,10 @@ final class CodexLocalSnapshotReaderTests: XCTestCase {
     private func write(_ value: String, to url: URL) throws {
         try value.write(to: url, atomically: true, encoding: .utf8)
     }
+
+    private static func iso8601String(from date: Date) -> String {
+        rolloutFormatter.string(from: date)
+    }
 }
 
 #if canImport(SQLite3)
@@ -162,4 +201,10 @@ private let sqliteTransientDestructor = unsafeBitCast(
     -1,
     to: sqlite3_destructor_type.self
 )
+
+private let rolloutFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+}()
 #endif

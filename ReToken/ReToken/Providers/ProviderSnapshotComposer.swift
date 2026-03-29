@@ -18,17 +18,19 @@ enum ProviderSnapshotComposer {
             bundles.append(bundle)
         }
 
+        let visibleBundles = bundles.filter { $0.usage.isVisible }
+
         return AppSnapshot(
-            usage: bundles.map(\.usage).sorted { $0.provider.rawValue < $1.provider.rawValue },
-            accounts: bundles.map(\.account).sorted { $0.provider.rawValue < $1.provider.rawValue },
-            recentActivity: bundles
+            usage: visibleBundles.map(\.usage).sorted { $0.provider.rawValue < $1.provider.rawValue },
+            accounts: visibleBundles.map(\.account).sorted { $0.provider.rawValue < $1.provider.rawValue },
+            recentActivity: visibleBundles
                 .flatMap(\.recentActivity)
                 .sorted { $0.occurredAt > $1.occurredAt },
             lastUpdatedAt: now,
             mode: mode,
             freshness: freshness,
             dataSourceLabel: dataSourceLabel,
-            issues: bundles.flatMap(\.issues)
+            issues: visibleBundles.flatMap(\.issues)
         )
     }
 }

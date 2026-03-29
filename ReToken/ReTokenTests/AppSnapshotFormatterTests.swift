@@ -2,7 +2,7 @@ import XCTest
 @testable import ReToken
 
 final class AppSnapshotFormatterTests: XCTestCase {
-    func testStatusTitleUsesCompactMillionsAndWarningMarker() {
+    func testStatusTitleUsesCompactMillionsWithoutWarningMarker() {
         let snapshot = SnapshotFixtures.snapshot(
             usage: [
                 SnapshotFixtures.usage(provider: .codex, todayTokens: 1_200_000),
@@ -11,7 +11,7 @@ final class AppSnapshotFormatterTests: XCTestCase {
             issues: [SnapshotIssue(provider: .codex, message: "Rate limit warning")]
         )
 
-        XCTAssertEqual(AppSnapshotFormatter.statusTitle(for: snapshot), "RT 1.2M !")
+        XCTAssertEqual(AppSnapshotFormatter.statusTitle(for: snapshot), "RT 1.2M")
     }
 
     func testTooltipIncludesModeFreshnessAndTokenTotal() {
@@ -95,5 +95,37 @@ final class AppSnapshotFormatterTests: XCTestCase {
         XCTAssertTrue(text.contains("Current run rank: #1"))
         XCTAssertTrue(text.contains("All-time champ: Codex"))
         XCTAssertTrue(text.contains("Most tracked: Claude"))
+    }
+
+    func testUsageLimitSummaryIncludesPercentAndResetCountdown() {
+        let referenceDate = Date(timeIntervalSince1970: 1_780_000_000)
+        let usage = SnapshotFixtures.usage(
+            provider: .codex,
+            todayTokens: 500_000,
+            fiveHourTokens: 180_000,
+            weekTokens: 1_200_000,
+            fiveHourUsedPercent: 46,
+            fiveHourResetAt: referenceDate.addingTimeInterval(90 * 60),
+            weekUsedPercent: 18,
+            weekResetAt: referenceDate.addingTimeInterval((6 * 24 * 60 * 60) + (4 * 60 * 60))
+        )
+
+        let summary = AppSnapshotFormatter.usageLimitSummary(for: usage, referenceDate: referenceDate)
+
+        XCTAssertEqual(summary, "5h cap 46% resets in 1h 30m • 7d cap 18% resets in 6d 4h")
+    }
+
+    func testInputOutputSummaryFormatsBothSidesWhenPresent() {
+        let usage = SnapshotFixtures.usage(
+            provider: .claude,
+            todayTokens: 500_000,
+            todayInputTokens: 320_000,
+            todayOutputTokens: 180_000
+        )
+
+        XCTAssertEqual(
+            AppSnapshotFormatter.inputOutputSummary(for: usage),
+            "In 320.0K • Out 180.0K"
+        )
     }
 }

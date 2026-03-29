@@ -61,6 +61,8 @@ final class ClaudeLocalSnapshotReaderTests: XCTestCase {
         let snapshot = try reader.readSnapshot(now: now)
 
         XCTAssertEqual(snapshot.usage.todayTokens, 50_000)
+        XCTAssertEqual(snapshot.usage.todayInputTokens, nil)
+        XCTAssertEqual(snapshot.usage.todayOutputTokens, nil)
         XCTAssertEqual(snapshot.usage.windowDescription, "12 msgs • 2 sessions today")
         XCTAssertEqual(snapshot.usage.accountStatus, "local Claude CLI stats")
         XCTAssertEqual(snapshot.account.accountLabel, "Claude Opus 4 6")
@@ -107,6 +109,54 @@ final class ClaudeLocalSnapshotReaderTests: XCTestCase {
         XCTAssertEqual(snapshot.issues.map(\.message), ["Local token stats last updated \(staleDayKey)"])
     }
 
+    func testReadSnapshotCapturesInputAndOutputSplitFromProjectLogs() throws {
+        let now = Date()
+        let historyURL = temporaryDirectoryURL.appending(path: "history.jsonl")
+        let statsURL = temporaryDirectoryURL.appending(path: "stats-cache.json")
+        let projectsURL = temporaryDirectoryURL.appending(path: "projects", directoryHint: .isDirectory)
+        let projectURL = projectsURL.appending(path: "ReToken", directoryHint: .isDirectory)
+        let transcriptURL = projectURL.appending(path: "session.jsonl")
+        let transcriptTimestamp = iso8601String(for: now.addingTimeInterval(-(60 * 60)))
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try write(
+            """
+            {"display":"Prompt","project":"/Users/test/Developer/ReToken","sessionId":"session-1","timestamp":1780012600000}
+            """,
+            to: historyURL
+        )
+        try write(
+            """
+            {
+              "dailyActivity": [],
+              "dailyModelTokens": [],
+              "modelUsage": {},
+              "totalMessages": 1,
+              "totalSessions": 1,
+              "lastComputedDate": "2026-05-17"
+            }
+            """,
+            to: statsURL
+        )
+        try write(
+            """
+            {"type":"assistant","timestamp":"\(transcriptTimestamp)","message":{"model":"claude-sonnet-4","usage":{"input_tokens":1200,"output_tokens":450,"cache_creation_input_tokens":50,"cache_read_input_tokens":300}}}
+            """,
+            to: transcriptURL
+        )
+
+        let reader = ClaudeLocalSnapshotReader(
+            historyURL: historyURL,
+            statsCacheURL: statsURL,
+            projectsDirectoryURL: projectsURL
+        )
+        let snapshot = try reader.readSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.usage.todayTokens, 2_000)
+        XCTAssertEqual(snapshot.usage.todayInputTokens, 1_550)
+        XCTAssertEqual(snapshot.usage.todayOutputTokens, 450)
+    }
+
     private func write(_ value: String, to url: URL) throws {
         try value.write(to: url, atomically: true, encoding: .utf8)
     }
@@ -116,6 +166,12 @@ final class ClaudeLocalSnapshotReaderTests: XCTestCase {
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private func iso8601String(for date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)
     }
 }

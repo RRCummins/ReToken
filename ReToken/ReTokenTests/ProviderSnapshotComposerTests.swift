@@ -71,6 +71,51 @@ final class ProviderSnapshotComposerTests: XCTestCase {
         XCTAssertEqual(snapshot.freshness, .fresh)
         XCTAssertEqual(snapshot.dataSourceLabel, "Live Providers")
     }
+
+    func testMakeSnapshotHidesProvidersWithoutVisibleData() async {
+        let now = Date(timeIntervalSince1970: 1_700_200_000)
+
+        let adapters: [any ProviderAdapter] = [
+            StaticProviderAdapter(
+                provider: .gemini,
+                bundle: ProviderSnapshotBundle(
+                    usage: SnapshotFixtures.usage(provider: .gemini, todayTokens: 0, isVisible: false),
+                    account: SnapshotFixtures.account(provider: .gemini),
+                    recentActivity: [],
+                    issues: [SnapshotIssue(provider: .gemini, message: "Hidden placeholder")]
+                )
+            ),
+            StaticProviderAdapter(
+                provider: .codex,
+                bundle: ProviderSnapshotBundle(
+                    usage: SnapshotFixtures.usage(provider: .codex, todayTokens: 200),
+                    account: SnapshotFixtures.account(provider: .codex),
+                    recentActivity: [
+                        SnapshotFixtures.activity(
+                            provider: .codex,
+                            title: "Visible codex activity",
+                            occurredAt: now.addingTimeInterval(-30)
+                        )
+                    ],
+                    issues: []
+                )
+            )
+        ]
+
+        let snapshot = await ProviderSnapshotComposer.makeSnapshot(
+            from: adapters,
+            mode: .live,
+            refreshCount: 1,
+            now: now,
+            freshness: .fresh,
+            dataSourceLabel: "Visible Providers"
+        )
+
+        XCTAssertEqual(snapshot.usage.map(\.provider), [.codex])
+        XCTAssertEqual(snapshot.accounts.map(\.provider), [.codex])
+        XCTAssertEqual(snapshot.recentActivity.map(\.provider), [.codex])
+        XCTAssertTrue(snapshot.issues.isEmpty)
+    }
 }
 
 private struct StaticProviderAdapter: ProviderAdapter {

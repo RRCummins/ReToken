@@ -10,6 +10,10 @@ struct MockGeminiProviderAdapter: ProviderAdapter {
             usage: ProviderUsageSnapshot(
                 provider: provider,
                 todayTokens: tokens,
+                todayInputTokens: 176_000 + (context.refreshCount * 3_000),
+                todayOutputTokens: 104_000 + (context.refreshCount * 2_000),
+                fiveHourTokens: 74_000 + (context.refreshCount * 1_500),
+                weekTokens: 1_520_000 + (context.refreshCount * 8_000),
                 windowDescription: "project quota healthy",
                 burnDescription: "warming up",
                 accountStatus: "connected through project metrics"

@@ -130,6 +130,15 @@ final class AppStateController {
         refreshData()
     }
 
+    var menuBarShowsLifetime: Bool {
+        configurationStore.menuBarShowsLifetime
+    }
+
+    func setMenuBarShowsLifetime(_ value: Bool) {
+        configurationStore.menuBarShowsLifetime = value
+        notificationCenter.post(name: .appStateControllerDidChange, object: self)
+    }
+
     var refreshIntervalMinutes: Int {
         configurationStore.refreshIntervalMinutes
     }
@@ -146,6 +155,10 @@ final class AppStateController {
 
     func startAutomaticRefresh() {
         scheduleAutomaticRefresh()
+    }
+
+    func loadDashboardUsageCharts(now: Date = .now) -> DashboardUsageCharts {
+        telemetryStore.loadDashboardUsageCharts(now: now)
     }
 
     deinit {

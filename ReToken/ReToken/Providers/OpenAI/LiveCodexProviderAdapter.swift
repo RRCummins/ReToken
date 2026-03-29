@@ -37,10 +37,11 @@ struct LiveCodexProviderAdapter: ProviderAdapter {
         }
 
         do {
-            let summary = try await apiClient.fetchDailyUsage(
+            let summary = try await apiClient.fetchUsageWindows(
                 adminKey: credentials.adminKey,
                 organizationID: credentials.organizationID,
-                projectID: credentials.projectID
+                projectID: credentials.projectID,
+                now: context.now
             )
 
             if let localBundle {
@@ -61,18 +62,31 @@ struct LiveCodexProviderAdapter: ProviderAdapter {
         localBundle: ProviderSnapshotBundle,
         summary: OpenAIUsageSummary
     ) -> ProviderSnapshotBundle {
-        let tokens = localBundle.usage.todayTokens == 0 ? summary.totalTokens : localBundle.usage.todayTokens
-        let requestsSuffix = summary.totalRequests > 0 ? " • org \(summary.totalRequests) req/24h" : ""
-        let costSuffix = summary.totalCostUSD.map { String(format: " • org $%.2f today", $0) } ?? ""
+        let todayTokens = localBundle.usage.todayTokens == 0 ? summary.todayTokens : localBundle.usage.todayTokens
+        let todayInputTokens = localBundle.usage.todayInputTokens ?? summary.todayInputTokens
+        let todayOutputTokens = localBundle.usage.todayOutputTokens ?? summary.todayOutputTokens
+        let fiveHourTokens = localBundle.usage.fiveHourTokens == 0 ? summary.fiveHourTokens : localBundle.usage.fiveHourTokens
+        let weekTokens = localBundle.usage.weekTokens == 0 ? summary.weekTokens : localBundle.usage.weekTokens
+        let requestsSuffix = summary.todayRequests > 0 ? " • org \(summary.todayRequests) req today" : ""
+        let costSuffix = summary.todayCostUSD.map { String(format: " • org $%.2f today", $0) } ?? ""
 
         return ProviderSnapshotBundle(
             usage: ProviderUsageSnapshot(
                 provider: provider,
-                todayTokens: tokens,
+                todayTokens: todayTokens,
+                todayInputTokens: todayInputTokens,
+                todayOutputTokens: todayOutputTokens,
+                fiveHourTokens: fiveHourTokens,
+                weekTokens: weekTokens,
+                fiveHourUsedPercent: localBundle.usage.fiveHourUsedPercent,
+                fiveHourResetAt: localBundle.usage.fiveHourResetAt,
+                weekUsedPercent: localBundle.usage.weekUsedPercent,
+                weekResetAt: localBundle.usage.weekResetAt,
+                lifetimeTokens: localBundle.usage.lifetimeTokens,
                 windowDescription: localBundle.usage.windowDescription + requestsSuffix,
-                burnDescription: tokens == localBundle.usage.todayTokens
+                burnDescription: todayTokens == localBundle.usage.todayTokens
                     ? localBundle.usage.burnDescription
-                    : (tokens > 1_000_000 ? "hot" : "steady"),
+                    : (todayTokens > 1_000_000 ? "hot" : "steady"),
                 accountStatus: localBundle.usage.accountStatus + " • OpenAI org cost linked"
             ),
             account: AccountSnapshot(
@@ -94,16 +108,20 @@ struct LiveCodexProviderAdapter: ProviderAdapter {
         ProviderSnapshotBundle(
             usage: ProviderUsageSnapshot(
                 provider: provider,
-                todayTokens: summary.totalTokens,
-                windowDescription: "\(summary.totalRequests) requests in the last 24h",
-                burnDescription: summary.totalTokens > 1_000_000 ? "hot" : "steady",
+                todayTokens: summary.todayTokens,
+                todayInputTokens: summary.todayInputTokens,
+                todayOutputTokens: summary.todayOutputTokens,
+                fiveHourTokens: summary.fiveHourTokens,
+                weekTokens: summary.weekTokens,
+                windowDescription: "\(summary.todayRequests) requests today via OpenAI admin usage",
+                burnDescription: summary.todayTokens > 1_000_000 ? "hot" : "steady",
                 accountStatus: "OpenAI org usage without local Codex state"
             ),
             account: AccountSnapshot(
                 provider: provider,
                 accountLabel: credentials.projectID ?? "organization scope",
                 planLabel: "OpenAI admin usage",
-                billingStatus: summary.totalCostUSD.map { String(format: "$%.2f today", $0) } ?? "cost unavailable"
+                billingStatus: summary.todayCostUSD.map { String(format: "$%.2f today", $0) } ?? "cost unavailable"
             ),
             recentActivity: [
                 RecentActivityItem(
@@ -126,7 +144,8 @@ struct LiveCodexProviderAdapter: ProviderAdapter {
                 todayTokens: 0,
                 windowDescription: "live usage unavailable",
                 burnDescription: "idle",
-                accountStatus: "waiting for valid OpenAI admin credentials"
+                accountStatus: "waiting for valid OpenAI admin credentials",
+                isVisible: false
             ),
             account: AccountSnapshot(
                 provider: provider,
