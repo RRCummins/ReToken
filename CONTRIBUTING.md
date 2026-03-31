@@ -206,12 +206,15 @@ open /Users/ryancummins/Developer/ReToken/ReToken/ReToken.xcodeproj
 
 When an `xcodebuild` workflow is added, document the exact commands here.
 
+Release workflow lives in [`RELEASE.md`](./RELEASE.md). Follow that document for version bumps, notarization, DMG packaging, and GitHub Release publishing.
+
 ---
 
 ## Documentation Rules
 
 - Update `PLAN.md` whenever phase status changes
 - Update `CONTRIBUTING.md` when architecture or workflow rules change
+- Update `RELEASE.md` when the shipping process changes
 - Capture non-trivial provider/API decisions in committed docs, not only in chat
 
 ---

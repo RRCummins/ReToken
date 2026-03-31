@@ -19,3 +19,5 @@ build/
 # Local release artifacts
 ReToken.app/
 ReToken-*.dmg
+ReToken-*-notarized.zip
+rw.*.dmg

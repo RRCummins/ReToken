@@ -430,8 +430,7 @@ final class StatusPopoverViewController: NSViewController {
         // Header
         let isLive = snapshot.mode == .live
         modeDotView.layer?.backgroundColor = (isLive ? NSColor.systemGreen : NSColor.systemOrange).cgColor
-        let timeStr = Self.timeFormatter.string(from: snapshot.lastUpdatedAt)
-        lastUpdatedLabel.stringValue = "updated \(timeStr)"
+        lastUpdatedLabel.stringValue = AppSnapshotFormatter.lastUpdatedLine(for: snapshot)
 
         // Hero — today + lifetime side by side
         heroTokensLabel.stringValue = AppSnapshotFormatter.compactTokenCount(snapshot.totalTodayTokens)
@@ -476,23 +475,17 @@ final class StatusPopoverViewController: NSViewController {
 
         return snapshot.usage.map { usage in
             let planLabel = accountsByProvider[usage.provider]?.planLabel
-            var subtitleParts: [String] = []
-            if let plan = planLabel { subtitleParts.append(plan) }
-            if let inputOutputSummary = AppSnapshotFormatter.inputOutputSummary(for: usage) {
-                subtitleParts.append(inputOutputSummary)
-            }
-            subtitleParts.append(AppSnapshotFormatter.usageWindowSummary(for: usage))
-            if let limitSummary = AppSnapshotFormatter.usageLimitSummary(for: usage, referenceDate: snapshot.lastUpdatedAt) {
-                subtitleParts.append(limitSummary)
-            }
-            subtitleParts.append(usage.windowDescription)
-            if usage.lifetimeTokens > 0 {
-                subtitleParts.append("\(AppSnapshotFormatter.compactTokenCount(usage.lifetimeTokens)) lifetime")
-            }
+            let subtitle = AppSnapshotFormatter.providerPrimarySummary(for: usage)
+            let detail = AppSnapshotFormatter.providerSecondarySummary(
+                for: usage,
+                planLabel: planLabel,
+                referenceDate: snapshot.lastUpdatedAt
+            )
             return ProviderStatRowView(
                 provider: usage.provider,
                 todayTitle: AppSnapshotFormatter.compactTokenCount(usage.todayTokens),
-                subtitle: subtitleParts.joined(separator: " • "),
+                subtitle: subtitle,
+                detail: detail,
                 ratio: CGFloat(usage.todayTokens) / CGFloat(maxTokens)
             )
         }
@@ -520,13 +513,6 @@ final class StatusPopoverViewController: NSViewController {
             return label
         }
     }
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f
-    }()
 }
 
 // MARK: - Provider stat row
@@ -535,11 +521,12 @@ private final class ProviderStatRowView: NSView {
     private let fillView = NSView()
     private let fillWidthConstraint: NSLayoutConstraint
 
-    init(provider: ProviderKind, todayTitle: String, subtitle: String, ratio: CGFloat) {
+    init(provider: ProviderKind, todayTitle: String, subtitle: String, detail: String?, ratio: CGFloat) {
         let nameLabel = NSTextField(labelWithString: provider.displayName)
         let iconView = NSImageView()
         let valueLabel = NSTextField(labelWithString: todayTitle)
         let subtitleLabel = NSTextField(labelWithString: subtitle)
+        let detailLabel = NSTextField(labelWithString: detail ?? "")
         let barTrack = NSView()
 
         fillWidthConstraint = fillView.widthAnchor.constraint(
@@ -567,9 +554,15 @@ private final class ProviderStatRowView: NSView {
         valueLabel.textColor = provider.accentColor
 
         subtitleLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        subtitleLabel.textColor = NSColor(calibratedWhite: 0.60, alpha: 1.0)
-        subtitleLabel.maximumNumberOfLines = 2
-        subtitleLabel.lineBreakMode = .byWordWrapping
+        subtitleLabel.textColor = NSColor(calibratedWhite: 0.76, alpha: 1.0)
+        subtitleLabel.maximumNumberOfLines = 1
+        subtitleLabel.lineBreakMode = .byTruncatingTail
+
+        detailLabel.font = .systemFont(ofSize: 10, weight: .regular)
+        detailLabel.textColor = NSColor(calibratedWhite: 0.54, alpha: 1.0)
+        detailLabel.maximumNumberOfLines = 2
+        detailLabel.lineBreakMode = .byWordWrapping
+        detailLabel.isHidden = (detail?.isEmpty ?? true)
 
         barTrack.wantsLayer = true
         barTrack.layer?.cornerRadius = 3
@@ -590,10 +583,10 @@ private final class ProviderStatRowView: NSView {
         titleRow.alignment = .centerY
         titleRow.spacing = 6
 
-        let stackView = NSStackView(views: [titleRow, barTrack, subtitleLabel])
+        let stackView = NSStackView(views: [titleRow, barTrack, subtitleLabel, detailLabel])
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 6
+        stackView.spacing = 4
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 

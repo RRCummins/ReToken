@@ -11,7 +11,13 @@ enum AppSnapshotFormatter {
     }
 
     static func lastUpdatedLine(for snapshot: AppSnapshot) -> String {
-        "Last updated \(timeFormatter.string(from: snapshot.lastUpdatedAt)) • \(snapshot.mode.displayName.lowercased()) • \(snapshot.freshness.displayName) • \(snapshot.dataSourceLabel)"
+        "Updated \(timeFormatter.string(from: snapshot.lastUpdatedAt)) • \(snapshotStatusLine(for: snapshot))"
+    }
+
+    static func snapshotStatusLine(for snapshot: AppSnapshot) -> String {
+        let providerLabel = countLabel(snapshot.usage.count, singular: "provider")
+        let issueLabel = snapshot.issues.isEmpty ? "no issues" : countLabel(snapshot.issues.count, singular: "issue")
+        return "\(snapshot.mode.displayName) • \(snapshot.freshness.displayName) • \(providerLabel) • \(issueLabel)"
     }
 
     static func issuesMenuLine(for issue: SnapshotIssue) -> String {
@@ -41,10 +47,8 @@ enum AppSnapshotFormatter {
     static func usageMenuLine(for snapshot: ProviderUsageSnapshot) -> String {
         let parts = [
             "\(snapshot.provider.displayName): \(compactTokenCount(snapshot.todayTokens)) today",
-            inputOutputSummary(for: snapshot),
-            usageWindowSummary(for: snapshot),
-            usageLimitSummary(for: snapshot),
-            snapshot.windowDescription
+            providerPrimarySummary(for: snapshot),
+            providerSecondarySummary(for: snapshot)
         ].compactMap { $0 }
 
         return parts.joined(separator: " • ")
@@ -63,12 +67,8 @@ enum AppSnapshotFormatter {
             .map {
                 [
                     "\($0.provider.displayName): \(compactTokenCount($0.todayTokens)) today",
-                    inputOutputSummary(for: $0),
-                    usageWindowSummary(for: $0),
-                    usageLimitSummary(for: $0),
-                    $0.windowDescription,
-                    "\($0.burnDescription) burn",
-                    $0.accountStatus
+                    providerPrimarySummary(for: $0),
+                    providerSecondarySummary(for: $0)
                 ]
                     .compactMap { $0 }
                     .joined(separator: ", ")
@@ -77,8 +77,8 @@ enum AppSnapshotFormatter {
     }
 
     static func usageWindowSummary(for snapshot: ProviderUsageSnapshot) -> String {
-        let fiveHourLabel = "\(compactTokenCount(snapshot.fiveHourTokens)) / 5h"
-        let weekLabel = "\(compactTokenCount(snapshot.weekTokens)) / 7d"
+        let fiveHourLabel = "5h \(compactTokenCount(snapshot.fiveHourTokens))"
+        let weekLabel = "7d \(compactTokenCount(snapshot.weekTokens))"
         return "\(fiveHourLabel) • \(weekLabel)"
     }
 
@@ -88,7 +88,29 @@ enum AppSnapshotFormatter {
             return nil
         }
 
-        return "In \(compactTokenCount(input)) • Out \(compactTokenCount(output))"
+        return "in \(compactTokenCount(input)) • out \(compactTokenCount(output))"
+    }
+
+    static func providerPrimarySummary(for snapshot: ProviderUsageSnapshot) -> String {
+        [inputOutputSummary(for: snapshot), usageWindowSummary(for: snapshot)]
+            .compactMap { $0 }
+            .joined(separator: " • ")
+    }
+
+    static func providerSecondarySummary(
+        for snapshot: ProviderUsageSnapshot,
+        planLabel: String? = nil,
+        referenceDate: Date = .now
+    ) -> String? {
+        let lifetimeLabel = snapshot.lifetimeTokens > 0 ? "\(compactTokenCount(snapshot.lifetimeTokens)) lifetime" : nil
+        let parts = [
+            planLabel,
+            usageLimitSummary(for: snapshot, referenceDate: referenceDate),
+            lifetimeLabel,
+            snapshot.windowDescription
+        ].compactMap { normalizedSummaryPart($0) }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " • ")
     }
 
     static func usageLimitSummary(
@@ -253,17 +275,32 @@ enum AppSnapshotFormatter {
             return nil
         }
 
-        var parts: [String] = ["\(windowLabel) cap"]
+        var parts: [String] = []
         if let usedPercent {
-            parts.append(String(format: "%.0f%%", usedPercent))
+            parts.append("\(windowLabel) \(String(format: "%.0f%%", usedPercent))")
+        } else {
+            parts.append(windowLabel)
         }
 
         if let resetAt {
             let remaining = max(0, resetAt.timeIntervalSince(referenceDate))
-            let resetText = durationFormatter.string(from: remaining).map { "resets in \($0)" } ?? "reset pending"
+            let resetText = durationFormatter.string(from: remaining).map { "reset \($0)" } ?? "reset pending"
             parts.append(resetText)
         }
 
-        return parts.joined(separator: " ")
+        return parts.joined(separator: " • ")
+    }
+
+    private static func normalizedSummaryPart(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmed.isEmpty == false else {
+            return nil
+        }
+
+        return trimmed
+    }
+
+    private static func countLabel(_ count: Int, singular: String) -> String {
+        count == 1 ? "1 \(singular)" : "\(count) \(singular)s"
     }
 }

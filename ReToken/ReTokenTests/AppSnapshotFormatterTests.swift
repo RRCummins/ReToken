@@ -30,6 +30,23 @@ final class AppSnapshotFormatterTests: XCTestCase {
         )
     }
 
+    func testSnapshotStatusLineIncludesProviderAndIssueCounts() {
+        let snapshot = SnapshotFixtures.snapshot(
+            usage: [
+                SnapshotFixtures.usage(provider: .claude, todayTokens: 1_250),
+                SnapshotFixtures.usage(provider: .codex, todayTokens: 2_500)
+            ],
+            mode: .live,
+            freshness: .stale,
+            issues: [SnapshotIssue(provider: .claude, message: "Stats cache is stale")]
+        )
+
+        XCTAssertEqual(
+            AppSnapshotFormatter.snapshotStatusLine(for: snapshot),
+            "Live • stale • 2 providers • 1 issue"
+        )
+    }
+
     func testIssuesDashboardTextFallsBackWhenNoIssuesExist() {
         let snapshot = SnapshotFixtures.snapshot(
             usage: [SnapshotFixtures.usage(provider: .claude, todayTokens: 90)]
@@ -112,7 +129,7 @@ final class AppSnapshotFormatterTests: XCTestCase {
 
         let summary = AppSnapshotFormatter.usageLimitSummary(for: usage, referenceDate: referenceDate)
 
-        XCTAssertEqual(summary, "5h cap 46% resets in 1h 30m • 7d cap 18% resets in 6d 4h")
+        XCTAssertEqual(summary, "5h 46% • reset 1h 30m • 7d 18% • reset 6d 4h")
     }
 
     func testInputOutputSummaryFormatsBothSidesWhenPresent() {
@@ -125,7 +142,30 @@ final class AppSnapshotFormatterTests: XCTestCase {
 
         XCTAssertEqual(
             AppSnapshotFormatter.inputOutputSummary(for: usage),
-            "In 320.0K • Out 180.0K"
+            "in 320.0K • out 180.0K"
+        )
+    }
+
+    func testProviderSecondarySummaryBuildsCleanDetailLine() {
+        let referenceDate = Date(timeIntervalSince1970: 1_780_000_000)
+        let usage = SnapshotFixtures.usage(
+            provider: .codex,
+            todayTokens: 500_000,
+            fiveHourUsedPercent: 46,
+            fiveHourResetAt: referenceDate.addingTimeInterval(90 * 60),
+            weekUsedPercent: 18,
+            weekResetAt: referenceDate.addingTimeInterval((6 * 24 * 60 * 60) + (4 * 60 * 60)),
+            lifetimeTokens: 3_400_000,
+            windowDescription: "local rate limits"
+        )
+
+        XCTAssertEqual(
+            AppSnapshotFormatter.providerSecondarySummary(
+                for: usage,
+                planLabel: "Pro",
+                referenceDate: referenceDate
+            ),
+            "Pro • 5h 46% • reset 1h 30m • 7d 18% • reset 6d 4h • 3.4M lifetime • local rate limits"
         )
     }
 }
